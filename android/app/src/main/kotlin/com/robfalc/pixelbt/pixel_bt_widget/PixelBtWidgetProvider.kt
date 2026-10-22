@@ -7,10 +7,18 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.widget.RemoteViews
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 /**
  * PixelBtWidgetProvider handles the app widget functionality for Pixel Bluetooth Widget.
  * It manages widget updates, handles click events, and coordinates with the Bluetooth system.
+ *
+ * Features:
+ * - Displays configured Bluetooth devices with connection status
+ * - Supports multiple favorite/active devices
+ * - One-tap toggle via PendingIntent with instantaneous visual feedback
+ * - Graceful fallback when no devices are configured (directs user to configure)
  */
 class PixelBtWidgetProvider : AppWidgetProvider() {
 
@@ -19,7 +27,7 @@ class PixelBtWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        // Update each widget
+        // Update each widget instance
         for (appWidgetId in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, appWidgetId)
         }
@@ -30,7 +38,7 @@ class PixelBtWidgetProvider : AppWidgetProvider() {
 
         when (intent.action) {
             ACTION_BLUETOOTH_TOGGLE -> {
-                handleBluetoothToggle(context)
+                handleBluetoothToggle(context, intent)
             }
             AppWidgetManager.ACTION_APPWIDGET_UPDATE -> {
                 val appWidgetManager = AppWidgetManager.getInstance(context)
@@ -43,109 +51,206 @@ class PixelBtWidgetProvider : AppWidgetProvider() {
 
     companion object {
         private const val ACTION_BLUETOOTH_TOGGLE = "com.robfalc.pixelbt.BLUETOOTH_TOGGLE"
+        private const val PREFS_NAME = "pixel_bt_widget_prefs"
+        private const val KEY_DEVICES = "pixel_widget_devices"
+        
+        private val gson = Gson()
 
+        /**
+         * Updates the widget UI based on the current device configuration.
+         * If no devices are configured, shows setup instruction.
+         * If devices exist, displays active/favorite devices with connection status.
+         */
         fun updateAppWidget(
             context: Context,
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int
         ) {
-            val sharedPreferences = context.getSharedPreferences(
-                "pixel_bt_widget_prefs",
-                Context.MODE_PRIVATE
-            )
-
-            // Get current device state
-            val deviceName = sharedPreferences.getString("selected_device_name", "No device")
-                ?: "No device"
-            val isEnabled = sharedPreferences.getBoolean("device_enabled", false)
-            val deviceAddress = sharedPreferences.getString("selected_device_address", "")
-                ?: ""
-
-            // Create RemoteViews
+            val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val remoteViews = RemoteViews(context.packageName, R.layout.pixel_bt_widget_layout)
 
-            // Update title
-            remoteViews.setTextViewText(
-                R.id.widget_title,
-                "Pixel Bluetooth"
-            )
+            // Load configured devices from SharedPreferences
+            val devicesJson = sharedPreferences.getString(KEY_DEVICES, null)
+            val devices = parseDevices(devicesJson)
 
-            // Update device status display
-            val statusText = if (deviceAddress.isEmpty()) {
-                "No device selected"
+            // Filter for favorite/active devices
+            val favoriteDevices = devices.filter { it.isFavorite }.sortedBy { it.priorityOrder }
+
+            if (favoriteDevices.isEmpty()) {
+                // No devices configured yet - show setup instruction
+                setupNoDevicesView(context, remoteViews)
             } else {
-                "$deviceName\n${if (isEnabled) "Connected" else "Disconnected"}"
+                // Display favorite devices
+                setupDevicesView(context, remoteViews, favoriteDevices)
             }
 
-            remoteViews.setTextViewText(R.id.device_status, statusText)
+            // Update the widget
+            appWidgetManager.updateAppWidget(appWidgetId, remoteViews)
+        }
 
-            // Set the text color based on connection status
-            val textColor = if (isEnabled) 0xFF4CAF50.toInt() else 0xFFB3B3B3.toInt()
+        /**
+         * Handles Bluetooth toggle action from widget button.
+         * Toggles the device state in SharedPreferences and immediately updates the RemoteViews.
+         */
+        private fun handleBluetoothToggle(context: Context, intent: Intent) {
+            val deviceAddress = intent.getStringExtra("device_address") ?: return
+            val deviceName = intent.getStringExtra("device_name") ?: "Unknown"
+
+            val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+            // Load current devices
+            val devicesJson = sharedPreferences.getString(KEY_DEVICES, null)
+            val devices = parseDevices(devicesJson).toMutableList()
+
+            // Find and toggle the device
+            val targetDevice = devices.find { it.macAddress == deviceAddress }
+            if (targetDevice != null) {
+                val index = devices.indexOf(targetDevice)
+                val updatedDevice = targetDevice.copy(isConnected = !targetDevice.isConnected)
+                devices[index] = updatedDevice
+
+                // Save updated devices back to SharedPreferences
+                val updatedJson = gson.toJson(devices)
+                sharedPreferences.edit().apply {
+                    putString(KEY_DEVICES, updatedJson)
+                    apply()
+                }
+
+                // Immediate visual feedback: update all widgets without waiting for system update
+                val appWidgetManager = AppWidgetManager.getInstance(context)
+                val componentName = ComponentName(context, PixelBtWidgetProvider::class.java)
+                val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
+
+                for (appWidgetId in appWidgetIds) {
+                    updateAppWidget(context, appWidgetManager, appWidgetId)
+                }
+
+                // TODO: Trigger actual Bluetooth connection/disconnection via BluetoothAdapter
+                // This would be handled through a service, WorkManager, or Bluetooth API
+            }
+        }
+
+        /**
+         * Sets up the widget view when no devices are configured.
+         * Shows title and instruction text, with PendingIntent to launch MainActivity for setup.
+         */
+        private fun setupNoDevicesView(context: Context, remoteViews: RemoteViews) {
+            remoteViews.setTextViewText(R.id.widget_title, "Pixel Bluetooth")
+            remoteViews.setTextViewText(
+                R.id.device_status,
+                "Tocca per aprire Pixel Studio e configurare i tuoi device"
+            )
+            remoteViews.setTextColor(R.id.device_status, 0xFFB3B3B3.toInt())
+
+            // Set PendingIntent to launch MainActivity for configuration
+            val setupIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingIntent = createPendingIntent(context, setupIntent, 0)
+            remoteViews.setOnClickPendingIntent(R.id.device_container, pendingIntent)
+        }
+
+        /**
+         * Sets up the widget view with configured favorite devices.
+         * Displays device name, icon representation, and connection status.
+         */
+        private fun setupDevicesView(
+            context: Context,
+            remoteViews: RemoteViews,
+            devices: List<DeviceData>
+        ) {
+            remoteViews.setTextViewText(R.id.widget_title, "Pixel Bluetooth")
+
+            // Build device status text with connection indicators
+            val statusBuilder = StringBuilder()
+            devices.forEachIndexed { index, device ->
+                if (index > 0) statusBuilder.append("\n")
+                
+                // Connection status indicator
+                val statusIndicator = if (device.isConnected) "● " else "○ "
+                val statusText = if (device.isConnected) "Connected" else "Disconnected"
+                val displayName = device.customName?.takeIf { it.isNotEmpty() } ?: device.name
+                
+                statusBuilder.append("$statusIndicator $displayName - $statusText")
+            }
+
+            remoteViews.setTextViewText(R.id.device_status, statusBuilder.toString())
+
+            // Color code based on primary device connection status
+            val primaryDeviceConnected = devices.firstOrNull()?.isConnected ?: false
+            val textColor = if (primaryDeviceConnected) 0xFF4CAF50.toInt() else 0xFFB3B3B3.toInt()
             remoteViews.setTextColor(R.id.device_status, textColor)
 
-            // Set click listener for toggle
-            val toggleIntent = Intent(context, PixelBtWidgetProvider::class.java).apply {
-                action = ACTION_BLUETOOTH_TOGGLE
-                putExtra("device_address", deviceAddress)
-                putExtra("device_name", deviceName)
+            // Set PendingIntent for the primary (first) favorite device
+            devices.firstOrNull()?.let { primaryDevice ->
+                val toggleIntent = Intent(context, PixelBtWidgetProvider::class.java).apply {
+                    action = ACTION_BLUETOOTH_TOGGLE
+                    putExtra("device_address", primaryDevice.macAddress)
+                    putExtra("device_name", primaryDevice.name)
+                }
+                val pendingIntent = createPendingIntent(
+                    context,
+                    toggleIntent,
+                    primaryDevice.macAddress.hashCode()
+                )
+                remoteViews.setOnClickPendingIntent(R.id.device_container, pendingIntent)
             }
+        }
 
-            val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        /**
+         * Helper function to create a PendingIntent with appropriate flags for the API level.
+         */
+        private fun createPendingIntent(
+            context: Context,
+            intent: Intent,
+            requestCode: Int
+        ): android.app.PendingIntent {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 android.app.PendingIntent.getBroadcast(
                     context,
-                    deviceAddress.hashCode(),
-                    toggleIntent,
+                    requestCode,
+                    intent,
                     android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
                 )
             } else {
                 @Suppress("DEPRECATION")
                 android.app.PendingIntent.getBroadcast(
                     context,
-                    deviceAddress.hashCode(),
-                    toggleIntent,
+                    requestCode,
+                    intent,
                     android.app.PendingIntent.FLAG_UPDATE_CURRENT
                 )
             }
-
-            remoteViews.setOnClickPendingIntent(R.id.device_container, pendingIntent)
-
-            // Update the widget
-            appWidgetManager.updateAppWidget(appWidgetId, remoteViews)
         }
 
-        private fun handleBluetoothToggle(context: Context) {
-            val sharedPreferences = context.getSharedPreferences(
-                "pixel_bt_widget_prefs",
-                Context.MODE_PRIVATE
-            )
-
-            val deviceAddress = sharedPreferences.getString("selected_device_address", "")
-                ?: ""
-            val deviceName = sharedPreferences.getString("selected_device_name", "Unknown")
-                ?: "Unknown"
-            val isCurrentlyEnabled = sharedPreferences.getBoolean("device_enabled", false)
-
-            // Toggle the state
-            val newState = !isCurrentlyEnabled
-
-            // Save the new state
-            sharedPreferences.edit().apply {
-                putBoolean("device_enabled", newState)
-                apply()
+        /**
+         * Parses device JSON from SharedPreferences.
+         * Returns an empty list if parsing fails or no devices are stored.
+         */
+        private fun parseDevices(devicesJson: String?): List<DeviceData> {
+            return try {
+                if (devicesJson.isNullOrEmpty()) return emptyList()
+                val type = object : TypeToken<List<DeviceData>>() {}.type
+                gson.fromJson(devicesJson, type)
+            } catch (e: Exception) {
+                emptyList()
             }
-
-            // Notify widget update
-            val appWidgetManager = AppWidgetManager.getInstance(context)
-            val componentName = ComponentName(context, PixelBtWidgetProvider::class.java)
-            val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
-
-            for (appWidgetId in appWidgetIds) {
-                updateAppWidget(context, appWidgetManager, appWidgetId)
-            }
-
-            // TODO: Here you would typically trigger the actual Bluetooth connection/disconnection
-            // This could be done through a service, WorkManager, or direct Bluetooth API calls
-            // For now, this is just a UI update with state persistence
         }
+
+        /**
+         * Data class representing a Bluetooth device as stored in SharedPreferences.
+         * Mirrors the BtDeviceItem structure from the Flutter app.
+         */
+        data class DeviceData(
+            val id: String,
+            val macAddress: String,
+            val name: String,
+            val customName: String? = null,
+            val iconType: String = "generic",
+            val isFavorite: Boolean = false,
+            val isConnected: Boolean = false,
+            val isConnecting: Boolean = false,
+            val priorityOrder: Int = 0
+        )
     }
 }

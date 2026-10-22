@@ -56,15 +56,23 @@ class BtDeviceItem {
         'priorityOrder': priorityOrder,
       };
 
-  factory BtDeviceItem.fromJson(Map<String, dynamic> json) => BtDeviceItem(
-        id: json['id'] as String,
-        macAddress: json['macAddress'] as String,
-        name: json['name'] as String,
-        customName: json['customName'] as String?,
-        iconType: DeviceIconTypeHelper.fromJson(json['iconType'] as String? ?? 'generic'),
-        isFavorite: json['isFavorite'] as bool? ?? false,
-        isConnected: json['isConnected'] as bool? ?? false,
-        isConnecting: json['isConnecting'] as bool? ?? false,
-        priorityOrder: json['priorityOrder'] as int? ?? 0,
-      );
+  factory BtDeviceItem.fromJson(Map<String, dynamic> json) {
+    final id = (json['id'] as String?)?.trim();
+    final macAddress = (json['macAddress'] as String?)?.trim();
+    final name = (json['name'] as String?)?.trim();
+    final customName = (json['customName'] as String?)?.trim();
+    final address = (json['address'] as String?)?.trim();
+    
+    return BtDeviceItem(
+      id: (id?.isNotEmpty ?? false) ? id! : ((macAddress?.isNotEmpty ?? false) ? macAddress! : (address ?? 'dev_0')),
+      macAddress: (macAddress?.isNotEmpty ?? false) ? macAddress! : (address ?? ((id?.isNotEmpty ?? false) ? id! : '00:00:00:00:00:00')),
+      name: (name?.isNotEmpty ?? false) ? name! : 'Bluetooth Device',
+      customName: (customName?.isNotEmpty ?? false) ? customName : null,
+      iconType: DeviceIconTypeHelper.fromJson((json['iconType'] as String?)?.trim() ?? 'generic'),
+      isFavorite: json['isFavorite'] as bool? ?? false,
+      isConnected: json['isConnected'] as bool? ?? false,
+      isConnecting: json['isConnecting'] as bool? ?? false,
+      priorityOrder: json['priorityOrder'] as int? ?? 0,
+    );
+  }
 }

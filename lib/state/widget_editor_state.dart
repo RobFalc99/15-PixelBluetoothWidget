@@ -27,27 +27,33 @@ class WidgetEditorState extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
-    _isLoading = true;
-    notifyListeners();
-    _config = await WidgetStorageService.loadConfig();
-    final saved = await WidgetStorageService.loadDevices();
-    final bonded = await BtChannelService.getBondedDevices();
-    _devices = bonded.map((b) {
-      final s = saved.firstWhere(
-        (e) => e.macAddress == b.macAddress,
-        orElse: () => b,
-      );
-      return b.copyWith(
-        customName: s.customName,
-        iconType: s.iconType,
-        isFavorite: s.isFavorite,
-        priorityOrder: s.priorityOrder,
-      );
-    }).toList()
-      ..sort((a, b) => a.priorityOrder.compareTo(b.priorityOrder));
-    await BtChannelService.syncWidgetData(_config, _devices);
-    _isLoading = false;
-    notifyListeners();
+    try {
+      _isLoading = true;
+      notifyListeners();
+      _config = await WidgetStorageService.loadConfig();
+      final saved = await WidgetStorageService.loadDevices();
+      final bonded = await BtChannelService.getBondedDevices();
+      _devices = bonded.map((b) {
+        final s = saved.firstWhere(
+          (e) => e.macAddress == b.macAddress,
+          orElse: () => b,
+        );
+        return b.copyWith(
+          customName: s.customName,
+          iconType: s.iconType,
+          isFavorite: s.isFavorite,
+          priorityOrder: s.priorityOrder,
+        );
+      }).toList()
+        ..sort((a, b) => a.priorityOrder.compareTo(b.priorityOrder));
+      await BtChannelService.syncWidgetData(_config, _devices);
+    } catch (_) {
+      // Fallback to mock devices on any error to prevent blank/broken UI
+      _devices = await BtChannelService.getBondedDevices();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> updateConfig(WidgetConfig newConfig) async {

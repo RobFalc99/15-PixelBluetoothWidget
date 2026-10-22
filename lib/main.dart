@@ -6,9 +6,8 @@ import 'ui/creator_screen.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   final state = WidgetEditorState();
-  state.initialize().then((_) {
-    runApp(PixelBtApp(state: state));
-  });
+  runApp(PixelBtApp(state: state));
+  state.initialize();
 }
 
 class PixelBtApp extends StatelessWidget {

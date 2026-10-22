@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1f1f1f"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="top">
+
+        <!-- Title -->
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Pixel Bluetooth"
+            android:textSize="16sp"
+            android:textColor="#ffffff"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Device Shortcut Container -->
+        <LinearLayout
+            android:id="@+id/device_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#2d2d2d"
+            android:padding="12dp"
+            android:gravity="center">
+
+            <TextView
+                android:id="@+id/device_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="No devices connected"
+                android:textSize="14sp"
+                android:textColor="#b3b3b3"
+                android:gravity="center" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

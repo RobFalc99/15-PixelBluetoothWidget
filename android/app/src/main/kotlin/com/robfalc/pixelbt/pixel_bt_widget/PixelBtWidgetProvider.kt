@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.view.View
 import android.widget.RemoteViews
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -53,7 +54,7 @@ class PixelBtWidgetProvider : AppWidgetProvider() {
         private const val ACTION_BLUETOOTH_TOGGLE = "com.robfalc.pixelbt.BLUETOOTH_TOGGLE"
         private const val PREFS_NAME = "pixel_bt_widget_prefs"
         private const val KEY_DEVICES = "pixel_widget_devices"
-        
+
         private val gson = Gson()
 
         /**
@@ -135,65 +136,64 @@ class PixelBtWidgetProvider : AppWidgetProvider() {
          * Shows title and instruction text, with PendingIntent to launch MainActivity for setup.
          */
         private fun setupNoDevicesView(context: Context, remoteViews: RemoteViews) {
-            remoteViews.setTextViewText(R.id.widget_title, "Pixel Bluetooth")
-            remoteViews.setTextViewText(
-                R.id.device_status,
-                "Tocca per aprire Pixel Studio e configurare i tuoi device"
-            )
-            remoteViews.setTextColor(R.id.device_status, 0xFFB3B3B3.toInt())
+            remoteViews.setViewVisibility(R.id.txt_empty_guide, View.VISIBLE)
+            remoteViews.setTextViewText(R.id.txt_empty_guide, "Tocca per aprire Pixel Studio e configurare i tuoi device")
 
-            // Set PendingIntent to launch MainActivity for configuration
+            // Hide all 4 slot buttons
+            remoteViews.setViewVisibility(R.id.btn_device_1, View.GONE)
+            remoteViews.setViewVisibility(R.id.btn_device_2, View.GONE)
+            remoteViews.setViewVisibility(R.id.btn_device_3, View.GONE)
+            remoteViews.setViewVisibility(R.id.btn_device_4, View.GONE)
+
+            // Set PendingIntent on txt_empty_guide to open MainActivity
             val setupIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             val pendingIntent = createPendingIntent(context, setupIntent, 0)
-            remoteViews.setOnClickPendingIntent(R.id.device_container, pendingIntent)
+            remoteViews.setOnClickPendingIntent(R.id.txt_empty_guide, pendingIntent)
         }
 
         /**
          * Sets up the widget view with configured favorite devices.
-         * Displays device name, icon representation, and connection status.
+         * Displays up to 4 device slots with name, icon representation, and connection status.
          */
         private fun setupDevicesView(
             context: Context,
             remoteViews: RemoteViews,
             devices: List<DeviceData>
         ) {
-            remoteViews.setTextViewText(R.id.widget_title, "Pixel Bluetooth")
+            remoteViews.setViewVisibility(R.id.txt_empty_guide, View.GONE)
 
-            // Build device status text with connection indicators
-            val statusBuilder = StringBuilder()
-            devices.forEachIndexed { index, device ->
-                if (index > 0) statusBuilder.append("\n")
-                
-                // Connection status indicator
-                val statusIndicator = if (device.isConnected) "● " else "○ "
-                val statusText = if (device.isConnected) "Connected" else "Disconnected"
-                val displayName = device.customName?.takeIf { it.isNotEmpty() } ?: device.name
-                
-                statusBuilder.append("$statusIndicator $displayName - $statusText")
-            }
+            val btnIds = intArrayOf(R.id.btn_device_1, R.id.btn_device_2, R.id.btn_device_3, R.id.btn_device_4)
+            val txtIds = intArrayOf(R.id.txt_device_1, R.id.txt_device_2, R.id.txt_device_3, R.id.txt_device_4)
+            val statusIds = intArrayOf(R.id.status_device_1, R.id.status_device_2, R.id.status_device_3, R.id.status_device_4)
 
-            remoteViews.setTextViewText(R.id.device_status, statusBuilder.toString())
+            for (i in 0 until 4) {
+                if (i < devices.size) {
+                    val dev = devices[i]
+                    remoteViews.setViewVisibility(btnIds[i], View.VISIBLE)
 
-            // Color code based on primary device connection status
-            val primaryDeviceConnected = devices.firstOrNull()?.isConnected ?: false
-            val textColor = if (primaryDeviceConnected) 0xFF4CAF50.toInt() else 0xFFB3B3B3.toInt()
-            remoteViews.setTextColor(R.id.device_status, textColor)
+                    val name = dev.customName?.takeIf { it.isNotEmpty() } ?: dev.name
+                    remoteViews.setTextViewText(txtIds[i], name)
 
-            // Set PendingIntent for the primary (first) favorite device
-            devices.firstOrNull()?.let { primaryDevice ->
-                val toggleIntent = Intent(context, PixelBtWidgetProvider::class.java).apply {
-                    action = ACTION_BLUETOOTH_TOGGLE
-                    putExtra("device_address", primaryDevice.macAddress)
-                    putExtra("device_name", primaryDevice.name)
+                    remoteViews.setTextViewText(statusIds[i], if (dev.isConnected) "●" else "○")
+                    remoteViews.setTextColor(statusIds[i], if (dev.isConnected) 0xFFFFFFFF.toInt() else 0xFF8E8E8E.toInt())
+
+                    // Set PendingIntent on button with ACTION_BLUETOOTH_TOGGLE
+                    val toggleIntent = Intent(context, PixelBtWidgetProvider::class.java).apply {
+                        action = ACTION_BLUETOOTH_TOGGLE
+                        putExtra("device_address", dev.macAddress)
+                        putExtra("device_name", dev.name)
+                    }
+                    val pendingIntent = createPendingIntent(
+                        context,
+                        toggleIntent,
+                        dev.macAddress.hashCode()
+                    )
+                    remoteViews.setOnClickPendingIntent(btnIds[i], pendingIntent)
+                } else {
+                    remoteViews.setViewVisibility(btnIds[i], View.GONE)
                 }
-                val pendingIntent = createPendingIntent(
-                    context,
-                    toggleIntent,
-                    primaryDevice.macAddress.hashCode()
-                )
-                remoteViews.setOnClickPendingIntent(R.id.device_container, pendingIntent)
             }
         }
 
